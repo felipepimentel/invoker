@@ -14,20 +14,40 @@ const CodeGenerationModal = ({ isOpen, onClose, theme }) => {
   }
 
   const generateCode = () => {
-    // This is a simple example. You might want to expand this to cover more languages and cases.
+    const headers = Object.fromEntries(activeTab.headers.filter(h => h.key && h.value));
+    const body = activeTab.method !== 'GET' ? activeTab.body : undefined;
+
     switch (language) {
       case 'javascript':
         return `
 fetch('${activeTab.url}', {
   method: '${activeTab.method}',
-  headers: ${JSON.stringify(Object.fromEntries(activeTab.headers.filter(h => h.key && h.value)), null, 2)},
-  body: ${activeTab.method !== 'GET' ? JSON.stringify(activeTab.body) : 'undefined'}
+  headers: ${JSON.stringify(headers, null, 2)},
+  ${body ? `body: ${JSON.stringify(body)}` : ''}
 })
 .then(response => response.json())
 .then(data => console.log(data))
 .catch((error) => console.error('Error:', error));
         `;
-      // Add more cases for other languages
+      case 'python':
+        return `
+import requests
+
+url = '${activeTab.url}'
+headers = ${JSON.stringify(headers, null, 2)}
+${body ? `body = ${JSON.stringify(body)}` : ''}
+
+response = requests.${activeTab.method.toLowerCase()}(url, headers=headers${body ? ', json=body' : ''})
+print(response.json())
+        `;
+      case 'curl':
+        return `
+curl -X ${activeTab.method} \\
+  ${Object.entries(headers).map(([key, value]) => `-H '${key}: ${value}' \\`).join('\n  ')}
+  ${body ? `-d '${JSON.stringify(body)}' \\` : ''}
+  ${activeTab.url}
+        `;
+      // Add more cases for other languages as needed
       default:
         return 'Code generation not supported for this language yet.';
     }
@@ -44,20 +64,25 @@ fetch('${activeTab.url}', {
         >
           <option value="javascript">JavaScript</option>
           <option value="python">Python</option>
-          <option value="java">Java</option>
-          <option value="csharp">C#</option>
-          <option value="go">Go</option>
-          <option value="ruby">Ruby</option>
-          <option value="swift">Swift</option>
-          <option value="kotlin">Kotlin</option>
+          <option value="curl">cURL</option>
+          {/* Add more language options as needed */}
         </select>
         <SyntaxHighlighter 
-          language={language} 
+          language={language === 'curl' ? 'bash' : language}
           style={theme === 'dark' ? dark : docco}
           className="rounded"
         >
           {generateCode()}
         </SyntaxHighlighter>
+        <button
+          onClick={() => {
+            navigator.clipboard.writeText(generateCode());
+            // You might want to add a toast notification here
+          }}
+          className={`mt-4 mr-2 px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-blue-600 hover:bg-blue-700 text-white' : 'bg-blue-500 hover:bg-blue-600 text-white'}`}
+        >
+          Copy to Clipboard
+        </button>
         <button
           onClick={onClose}
           className={`mt-4 px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-gray-700 hover:bg-gray-600 text-white' : 'bg-gray-200 hover:bg-gray-300 text-gray-900'}`}

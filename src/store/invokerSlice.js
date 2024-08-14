@@ -11,6 +11,26 @@ const initialState = {
   history: [],
   theme: 'dark',
   environment: {},
+  environments: {
+    default: {},
+    development: {},
+    staging: {},
+    production: {},
+  },
+  currentEnvironment: 'default',
+  tabs: [
+    {
+      id: 'default',
+      url: '',
+      method: 'GET',
+      params: [{ key: '', value: '' }],
+      headers: [{ key: '', value: '' }],
+      body: '',
+      response: null,
+    }
+  ],
+  activeTabId: 'default',
+  favorites: [],
 };
 
 const invokerSlice = createSlice({
@@ -45,7 +65,57 @@ const invokerSlice = createSlice({
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
     },
     setEnvironment: (state, action) => {
-      state.environment = action.payload;
+      const { name, variables } = action.payload;
+      state.environments[name] = variables;
+    },
+    setCurrentEnvironment: (state, action) => {
+      state.currentEnvironment = action.payload;
+    },
+    addTab: (state, action) => {
+      const newTab = {
+        id: Date.now().toString(),
+        url: '',
+        method: 'GET',
+        params: [{ key: '', value: '' }],
+        headers: [{ key: '', value: '' }],
+        body: '',
+        response: null,
+      };
+      if (!state.tabs) {
+        state.tabs = [];
+      }
+      state.tabs.push(newTab);
+      state.activeTabId = newTab.id;
+    },
+    removeTab: (state, action) => {
+      if (!state.tabs) {
+        state.tabs = [];
+        return;
+      }
+      state.tabs = state.tabs.filter(tab => tab.id !== action.payload);
+      if (state.activeTabId === action.payload && state.tabs.length > 0) {
+        state.activeTabId = state.tabs[0].id;
+      }
+    },
+    setActiveTab: (state, action) => {
+      state.activeTabId = action.payload;
+    },
+    updateTab: (state, action) => {
+      const { id, ...updates } = action.payload;
+      if (!state.tabs) {
+        state.tabs = [];
+        return;
+      }
+      const tabIndex = state.tabs.findIndex(tab => tab.id === id);
+      if (tabIndex !== -1) {
+        state.tabs[tabIndex] = { ...state.tabs[tabIndex], ...updates };
+      }
+    },
+    addToFavorites: (state, action) => {
+      state.favorites.push(action.payload);
+    },
+    removeFromFavorites: (state, action) => {
+      state.favorites = state.favorites.filter(fav => fav.id !== action.payload);
     },
   },
 });
@@ -61,6 +131,13 @@ export const {
   addToHistory,
   toggleTheme,
   setEnvironment,
+  setCurrentEnvironment,
+  addTab,
+  removeTab,
+  setActiveTab,
+  updateTab,
+  addToFavorites,
+  removeFromFavorites,
 } = invokerSlice.actions;
 
 export default invokerSlice.reducer;

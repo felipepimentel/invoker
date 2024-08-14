@@ -1,11 +1,23 @@
-import React, { useEffect, useCallback } from 'react';
+import React, { useEffect, useCallback, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { useHotkeys } from 'react-hotkeys-hook';
-import { Plus, Trash2, Save, ChevronDown, Book, History, Settings } from 'lucide-react';
+import { Plus, X, Send, ChevronDown, Book, History, Settings, Download, Upload, Maximize2, Save, ChevronLeft, ChevronRight, Star, Code, Tag } from 'lucide-react';
 import RequestForm from './RequestForm';
 import ResponseViewer from './ResponseViewer';
 import EnvironmentModal from './EnvironmentModal';
+import HistoryPanel from './HistoryPanel';
+import FavoritesPanel from './FavoritesPanel';
+import CompareResponsesModal from './CompareResponsesModal';
+import CodeGenerationModal from './CodeGenerationModal';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ToastContainer, toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
 import {
+  addTab,
+  removeTab,
+  setActiveTab,
+  updateTab,
+  toggleTheme,
   setUrl,
   setMethod,
   setParams,
@@ -14,37 +26,58 @@ import {
   setResponse,
   addCollection,
   addToHistory,
-  toggleTheme,
+  addToFavorites,
+  removeFromFavorites,
+  addTag,
+  removeTag,
 } from '../store/invokerSlice';
 
 const Invoker = () => {
   const dispatch = useDispatch();
   const {
-    url,
-    method,
-    params,
-    headers,
-    body,
-    response,
+    tabs,
+    activeTabId,
     collections,
     history,
     theme,
   } = useSelector((state) => state.invoker);
 
-  const [activeTab, setActiveTab] = React.useState('params');
-  const [isCollectionsOpen, setIsCollectionsOpen] = React.useState(true);
-  const [showEnvironmentModal, setShowEnvironmentModal] = React.useState(false);
+  // Add a default tab if tabs is undefined or empty
+  useEffect(() => {
+    if (!tabs || tabs.length === 0) {
+      dispatch(addTab());
+    }
+  }, [tabs, dispatch]);
+
+  const [isFullScreen, setIsFullScreen] = useState(false);
+  const [showSidebar, setShowSidebar] = useState(true);
+  const [showEnvironmentModal, setShowEnvironmentModal] = useState(false);
+  const [isCollectionsOpen, setIsCollectionsOpen] = useState(true);
+  const [showHistoryPanel, setShowHistoryPanel] = useState(false);
+  const [showFavoritesPanel, setShowFavoritesPanel] = useState(false);
+  const [showCompareModal, setShowCompareModal] = useState(false);
+  const [showCodeGenModal, setShowCodeGenModal] = useState(false);
 
   useEffect(() => {
     document.body.className = theme === 'dark' ? 'bg-gray-900' : 'bg-gray-100';
   }, [theme]);
 
+  const getActiveTab = useCallback(() => {
+    return tabs && tabs.find(tab => tab.id === activeTabId);
+  }, [tabs, activeTabId]);
+
   const handleSend = useCallback(async () => {
+    const activeTab = getActiveTab();
+    if (!activeTab) {
+      toast.error('No active tab found');
+      return;
+    }
+
     try {
-      const response = await fetch(url, {
-        method,
-        headers: Object.fromEntries(headers.filter(h => h.key && h.value)),
-        body: method !== 'GET' ? body : undefined,
+      const response = await fetch(activeTab.url, {
+        method: activeTab.method,
+        headers: Object.fromEntries(activeTab.headers.filter(h => h.key && h.value)),
+        body: activeTab.method !== 'GET' ? activeTab.body : undefined,
       });
       const data = await response.json();
       const newResponse = {
@@ -53,17 +86,19 @@ const Invoker = () => {
         headers: Object.fromEntries(response.headers.entries()),
         data,
       };
-      dispatch(setResponse(newResponse));
-      dispatch(addToHistory({ method, url, response: newResponse }));
+      dispatch(updateTab({ id: activeTabId, response: newResponse }));
+      dispatch(addToHistory({ method: activeTab.method, url: activeTab.url, response: newResponse }));
+      toast.success('Request sent successfully!');
     } catch (error) {
       console.error('Error:', error);
-      dispatch(setResponse({
+      dispatch(updateTab({ id: activeTabId, response: {
         status: 'Error',
         statusText: error.message,
         data: { error: 'Failed to fetch' },
-      }));
+      }}));
+      toast.error('Failed to send request');
     }
-  }, [url, method, headers, body, dispatch]);
+  }, [activeTabId, dispatch, getActiveTab]);
 
   const handleSaveCollection = useCallback(() => {
     const name = prompt("Digite o nome da coleção:");
@@ -73,159 +108,310 @@ const Invoker = () => {
         name,
         requests: [{
           id: Date.now(),
-          name: url,
-          method,
-          url,
-          params,
-          headers,
-          body
+          name: tabs.find(tab => tab.id === activeTabId).url,
+          method: tabs.find(tab => tab.id === activeTabId).method,
+          url: tabs.find(tab => tab.id === activeTabId).url,
+          params: tabs.find(tab => tab.id === activeTabId).params,
+          headers: tabs.find(tab => tab.id === activeTabId).headers,
+          body: tabs.find(tab => tab.id === activeTabId).body
         }]
       };
       dispatch(addCollection(newCollection));
     }
-  }, [url, method, params, headers, body, dispatch]);
+  }, [tabs, activeTabId, dispatch]);
+
+  const handleExportCollections = () => {
+    const dataStr = JSON.stringify(collections);
+    const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+    const exportFileDefaultName = 'invoker_collections.json';
+    const linkElement = document.createElement('a');
+    linkElement.setAttribute('href', dataUri);
+    linkElement.setAttribute('download', exportFileDefaultName);
+    linkElement.click();
+  };
+
+  const handleImportCollections = (event) => {
+    const file = event.target.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const importedCollections = JSON.parse(e.target.result);
+        importedCollections.forEach(collection => {
+          dispatch(addCollection(collection));
+        });
+      } catch (error) {
+        console.error('Error importing collections:', error);
+        // Você pode adicionar uma notificação de erro aqui
+      }
+    };
+    reader.readAsText(file);
+  };
 
   useHotkeys('ctrl+enter', handleSend);
   useHotkeys('ctrl+s', handleSaveCollection);
   useHotkeys('ctrl+t', () => dispatch(toggleTheme()));
 
-  const handleAddParam = () => dispatch(setParams([...params, { key: '', value: '' }]));
-  const handleAddHeader = () => dispatch(setHeaders([...headers, { key: '', value: '' }]));
+  const handleAddParam = () => dispatch(updateTab({ id: activeTabId, params: [...tabs.find(tab => tab.id === activeTabId).params, { key: '', value: '' }] }));
+  const handleAddHeader = () => dispatch(updateTab({ id: activeTabId, headers: [...tabs.find(tab => tab.id === activeTabId).headers, { key: '', value: '' }] }));
 
   const handleRemoveParam = (index) => {
-    const newParams = params.filter((_, i) => i !== index);
-    dispatch(setParams(newParams));
+    const newParams = tabs.find(tab => tab.id === activeTabId).params.filter((_, i) => i !== index);
+    dispatch(updateTab({ id: activeTabId, params: newParams }));
   };
 
   const handleRemoveHeader = (index) => {
-    const newHeaders = headers.filter((_, i) => i !== index);
-    dispatch(setHeaders(newHeaders));
+    const newHeaders = tabs.find(tab => tab.id === activeTabId).headers.filter((_, i) => i !== index);
+    dispatch(updateTab({ id: activeTabId, headers: newHeaders }));
+  };
+
+  const toggleFullScreen = () => {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+      setIsFullScreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+        setIsFullScreen(false);
+      }
+    }
+  };
+
+  const handleAddToFavorites = useCallback(() => {
+    const activeTab = getActiveTab();
+    if (activeTab) {
+      dispatch(addToFavorites({
+        id: Date.now(),
+        name: activeTab.url,
+        method: activeTab.method,
+        url: activeTab.url,
+        params: activeTab.params,
+        headers: activeTab.headers,
+        body: activeTab.body
+      }));
+      toast.success('Added to favorites!');
+    }
+  }, [dispatch, getActiveTab]);
+
+  const handleCompareResponses = () => {
+    setShowCompareModal(true);
+  };
+
+  const handleGenerateCode = () => {
+    setShowCodeGenModal(true);
+  };
+
+  const handleAddTag = (collectionId, tag) => {
+    dispatch(addTag({ collectionId, tag }));
   };
 
   return (
     <div className={`min-h-screen ${theme === 'dark' ? 'bg-gray-900 text-gray-100' : 'bg-gray-100 text-gray-900'} transition-colors duration-300`}>
-      <div className="max-w-7xl mx-auto p-6">
-        <header className={`flex justify-between items-center mb-8 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-lg p-4 shadow-lg`}>
-          <h1 className="text-4xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">Invoker</h1>
-          <div className="flex space-x-4">
-            <button onClick={() => dispatch(toggleTheme())} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
-              {theme === 'dark' ? '🌙' : '☀️'}
-            </button>
-            <button onClick={() => setShowEnvironmentModal(true)} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
-              <Settings className="h-6 w-6" />
-            </button>
-          </div>
-        </header>
-        
-        <main className={`${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} rounded-lg shadow-xl p-6`}>
-          <RequestForm
-            method={method}
-            setMethod={(value) => dispatch(setMethod(value))}
-            url={url}
-            setUrl={(value) => dispatch(setUrl(value))}
-            handleSend={handleSend}
-            theme={theme}
-          />
-
-          <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg p-4 mb-6`}>
-            <div className="flex mb-4 space-x-4">
-              {['params', 'headers', 'body'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setActiveTab(tab)}
-                  className={`px-4 py-2 font-semibold rounded-md transition duration-300 ease-in-out ${
-                    activeTab === tab
-                      ? 'bg-blue-500 text-white'
-                      : theme === 'dark' ? 'text-gray-400 hover:bg-gray-600' : 'text-gray-700 hover:bg-gray-300'
-                  }`}
-                >
-                  {tab.charAt(0).toUpperCase() + tab.slice(1)}
-                </button>
-              ))}
-            </div>
-
-            {/* Conteúdo das abas (params, headers, body) */}
-          </div>
-
-          <ResponseViewer response={response} theme={theme} />
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg p-4`}>
+      <div className="flex flex-col md:flex-row h-screen">
+        {/* Sidebar */}
+        <AnimatePresence>
+          {showSidebar && (
+            <motion.div
+              initial={{ x: -300, opacity: 0 }}
+              animate={{ x: 0, opacity: 1 }}
+              exit={{ x: -300, opacity: 0 }}
+              transition={{ type: 'spring', stiffness: 300, damping: 30 }}
+              className={`w-full md:w-64 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} p-4 overflow-y-auto flex-shrink-0 relative`}
+            >
               <div className="flex justify-between items-center mb-4">
                 <h2 className="text-xl font-semibold flex items-center">
-                  <Book className="mr-2 h-5 w-5" /> Coleções
+                  <Book className="mr-2 h-5 w-5" /> Collections
                 </h2>
-                <div className="flex space-x-2">
-                  <button
-                    onClick={handleSaveCollection}
-                    className="bg-purple-500 hover:bg-purple-600 text-white font-bold py-2 px-4 rounded-md transition duration-300 ease-in-out flex items-center"
-                  >
-                    <Save className="mr-2 h-4 w-4" /> Salvar
-                  </button>
-                  <button
-                    onClick={() => setIsCollectionsOpen(!isCollectionsOpen)}
-                    className={`${theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-300 hover:bg-gray-400'} text-white p-2 rounded-md transition duration-300 ease-in-out`}
-                  >
-                    <ChevronDown className={`h-4 w-4 transform ${isCollectionsOpen ? 'rotate-180' : ''}`} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => setShowSidebar(false)}
+                  className="md:hidden p-2 rounded-full hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronLeft className="h-6 w-6" />
+                </button>
               </div>
               {isCollectionsOpen && (
                 <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {collections.map((collection) => (
-                    <div key={collection.id} className={`${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'} rounded-md p-3`}>
-                      <h3 className="font-semibold text-lg mb-2">{collection.name}</h3>
-                      <ul className="space-y-1">
-                        {collection.requests.map((request) => (
-                          <li 
-                            key={request.id} 
-                            className={`text-sm cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-500' : 'hover:bg-gray-400'} p-2 rounded-md transition duration-300 ease-in-out`}
-                            onClick={() => {
-                              dispatch(setMethod(request.method));
-                              dispatch(setUrl(request.url));
-                              dispatch(setParams(request.params));
-                              dispatch(setHeaders(request.headers));
-                              dispatch(setBody(request.body));
-                            }}
-                          >
-                            <span className={`font-mono ${theme === 'dark' ? 'text-yellow-400' : 'text-yellow-600'}`}>{request.method}</span> {request.name}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  ))}
+                  {collections && collections.length > 0 ? (
+                    collections.map((collection) => (
+                      <div key={collection.id} className={`${theme === 'dark' ? 'bg-gray-600' : 'bg-gray-300'} rounded-md p-3`}>
+                        <h3 className="font-semibold text-lg mb-2">{collection.name}</h3>
+                        <ul className="space-y-1">
+                          {collection.requests && collection.requests.map((request) => (
+                            <li 
+                              key={request.id} 
+                              className={`text-sm cursor-pointer ${theme === 'dark' ? 'hover:bg-gray-500' : 'hover:bg-gray-400'} p-2 rounded-md transition duration-300 ease-in-out`}
+                              onClick={() => {
+                                dispatch(updateTab({ id: activeTabId, method: request.method, url: request.url, params: request.params, headers: request.headers, body: request.body }));
+                              }}
+                            >
+                              <span className={`font-mono ${theme === 'dark' ? 'text-yellow-400' : 'text-yellow-600'}`}>{request.method}</span> {request.name}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))
+                  ) : (
+                    <p>No collections available</p>
+                  )}
                 </div>
               )}
-            </div>
-
-            <div className={`${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} rounded-lg p-4`}>
-              <h2 className="text-xl font-semibold mb-4 flex items-center">
-                <History className="mr-2 h-5 w-5" /> Histórico
-              </h2>
-              <div className="space-y-2 max-h-60 overflow-y-auto">
-                {history.map((item, index) => (
-                  <div 
-                    key={index} 
-                    className={`${theme === 'dark' ? 'bg-gray-600 hover:bg-gray-500' : 'bg-gray-300 hover:bg-gray-400'} p-2 rounded-md cursor-pointer transition duration-300 ease-in-out`}
-                    onClick={() => {
-                      dispatch(setMethod(item.method));
-                      dispatch(setUrl(item.url));
-                      dispatch(setResponse(item.response));
-                    }}
-                  >
-                    <span className={`font-mono ${theme === 'dark' ? 'text-yellow-400' : 'text-yellow-600'}`}>{item.method}</span> {item.url}
-                  </div>
-                ))}
+              <div className="mt-4 space-y-2">
+                <button
+                  onClick={() => setShowHistoryPanel(!showHistoryPanel)}
+                  className={`w-full text-left py-2 px-4 rounded-md ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                >
+                  <History className="inline-block mr-2" /> History
+                </button>
+                <button
+                  onClick={() => setShowFavoritesPanel(!showFavoritesPanel)}
+                  className={`w-full text-left py-2 px-4 rounded-md ${theme === 'dark' ? 'hover:bg-gray-700' : 'hover:bg-gray-200'}`}
+                >
+                  <Star className="inline-block mr-2" /> Favorites
+                </button>
               </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Main content */}
+        <div className="flex-grow flex flex-col overflow-hidden">
+          <header className={`flex justify-between items-center p-4 ${theme === 'dark' ? 'bg-gray-800' : 'bg-white'} shadow-md`}>
+            <h1 className="text-2xl font-bold bg-gradient-to-r from-blue-500 to-purple-600 text-transparent bg-clip-text">Invoker</h1>
+            <div className="flex space-x-2">
+              {!showSidebar && (
+                <button 
+                  onClick={() => setShowSidebar(true)} 
+                  className="p-2 rounded-full hover:bg-gray-700 transition-colors"
+                >
+                  <ChevronRight className="h-6 w-6" />
+                </button>
+              )}
+              <button onClick={() => dispatch(toggleTheme())} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+                {theme === 'dark' ? '🌙' : '☀️'}
+              </button>
+              <button onClick={() => setShowEnvironmentModal(true)} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+                <Settings className="h-6 w-6" />
+              </button>
+              <button onClick={toggleFullScreen} className="p-2 rounded-full hover:bg-gray-700 transition-colors">
+                <Maximize2 className="h-6 w-6" />
+              </button>
             </div>
+          </header>
+
+          {/* Tabs */}
+          <div className={`flex overflow-x-auto ${theme === 'dark' ? 'bg-gray-700' : 'bg-gray-200'} p-2`}>
+            {tabs && tabs.map((tab) => (
+              <div
+                key={tab.id}
+                className={`flex items-center px-4 py-2 rounded-t-lg mr-2 cursor-pointer ${
+                  tab.id === activeTabId
+                    ? theme === 'dark' ? 'bg-gray-800 text-white' : 'bg-white text-gray-900'
+                    : theme === 'dark' ? 'bg-gray-600 text-gray-300' : 'bg-gray-300 text-gray-700'
+                }`}
+                onClick={() => dispatch(setActiveTab(tab.id))}
+              >
+                {tab.url || 'New Tab'}
+                <button
+                  className="ml-2 text-gray-500 hover:text-gray-700"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch(removeTab(tab.id));
+                  }}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+            ))}
+            <button
+              className={`px-4 py-2 rounded-t-lg ${theme === 'dark' ? 'bg-gray-600 text-gray-300' : 'bg-gray-300 text-gray-700'}`}
+              onClick={() => dispatch(addTab())}
+            >
+              <Plus className="h-4 w-4" />
+            </button>
           </div>
-        </main>
+
+          {/* Active tab content */}
+          <div className="flex-1 overflow-auto p-4">
+            {getActiveTab() ? (
+              <>
+                <RequestForm
+                  tab={getActiveTab()}
+                  updateTab={(updates) => dispatch(updateTab({ id: activeTabId, ...updates }))}
+                  handleSend={handleSend}
+                  theme={theme}
+                />
+                <div className="mt-4 flex justify-end space-x-2">
+                  <button
+                    onClick={handleAddToFavorites}
+                    className={`px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-yellow-400 hover:bg-yellow-500'} text-white`}
+                  >
+                    <Star className="inline-block mr-2" /> Add to Favorites
+                  </button>
+                  <button
+                    onClick={handleCompareResponses}
+                    className={`px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-purple-600 hover:bg-purple-700' : 'bg-purple-400 hover:bg-purple-500'} text-white`}
+                  >
+                    <ChevronDown className="inline-block mr-2" /> Compare Responses
+                  </button>
+                  <button
+                    onClick={handleGenerateCode}
+                    className={`px-4 py-2 rounded-md ${theme === 'dark' ? 'bg-green-600 hover:bg-green-700' : 'bg-green-400 hover:bg-green-500'} text-white`}
+                  >
+                    <Code className="inline-block mr-2" /> Generate Code
+                  </button>
+                </div>
+                <ResponseViewer
+                  response={getActiveTab()?.response}
+                  theme={theme}
+                />
+              </>
+            ) : (
+              <div className="text-center py-10">No active tab. Please add a new tab.</div>
+            )}
+          </div>
+        </div>
       </div>
 
       <EnvironmentModal
         isOpen={showEnvironmentModal}
         onClose={() => setShowEnvironmentModal(false)}
         theme={theme}
+      />
+
+      <HistoryPanel
+        isOpen={showHistoryPanel}
+        onClose={() => setShowHistoryPanel(false)}
+        theme={theme}
+      />
+
+      <FavoritesPanel
+        isOpen={showFavoritesPanel}
+        onClose={() => setShowFavoritesPanel(false)}
+        theme={theme}
+      />
+
+      <CompareResponsesModal
+        isOpen={showCompareModal}
+        onClose={() => setShowCompareModal(false)}
+        theme={theme}
+      />
+
+      <CodeGenerationModal
+        isOpen={showCodeGenModal}
+        onClose={() => setShowCodeGenModal(false)}
+        theme={theme}
+      />
+
+      <ToastContainer
+        position="bottom-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={false}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme={theme === 'dark' ? 'dark' : 'light'}
       />
     </div>
   );

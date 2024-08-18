@@ -117,6 +117,16 @@ const invokerSlice = createSlice({
     removeFromFavorites: (state, action) => {
       state.favorites = state.favorites.filter(fav => fav.id !== action.payload);
     },
+    addTag: (state, action) => {
+      // Implement logic to add a tag
+      // For example:
+      // state.tags.push(action.payload);
+    },
+    removeTag: (state, action) => {
+      // Implement logic to remove a tag
+      // For example:
+      // state.tags = state.tags.filter(tag => tag !== action.payload);
+    },
   },
 });
 
@@ -138,6 +148,8 @@ export const {
   updateTab,
   addToFavorites,
   removeFromFavorites,
+  addTag,
+  removeTag,
 } = invokerSlice.actions;
 
 export default invokerSlice.reducer;

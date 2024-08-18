@@ -28,8 +28,6 @@ import {
   addToHistory,
   addToFavorites,
   removeFromFavorites,
-  addTag,
-  removeTag,
 } from '../store/invokerSlice';
 
 const Invoker = () => {
@@ -201,7 +199,7 @@ const Invoker = () => {
   };
 
   const handleAddTag = (collectionId, tag) => {
-    dispatch(addTag({ collectionId, tag }));
+    dispatch(addTab({ collectionId, tag }));
   };
 
   return (

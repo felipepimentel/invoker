@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useSelector } from 'react-redux';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { docco, dark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import SyntaxHighlighter from 'react-syntax-highlighter/dist/cjs/light';
+import { docco, dark } from 'react-syntax-highlighter/dist/cjs/styles/hljs';
 
 const CodeGenerationModal = ({ isOpen, onClose, theme }) => {
   const [language, setLanguage] = useState('javascript');
